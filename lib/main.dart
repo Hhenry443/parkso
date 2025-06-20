@@ -6,8 +6,7 @@ void main() {
   // Ensure that Flutter bindings are initialized.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set your Mapbox access token.
-  // It's good practice to store this in a configuration file or environment variable.
+  // Mapbox access token.
   const String accessToken =
       "pk.eyJ1IjoiaGhlbnJ5NDQzIiwiYSI6ImNtYWduM2c0dzAydHgyaXNnZGc4cGRsejUifQ.PgHjAohNcSOClqxrxlyBKg";
   MapboxOptions.setAccessToken(accessToken);

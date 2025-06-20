@@ -134,7 +134,21 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // Method to show detailed car park information
-  void _showCarParkDetails(CarPark carPark, double distance) {
+  void _showCarParkDetails(CarPark carPark, {double? finalDistance}) async {
+    final currentLocation = await geo.Geolocator.getCurrentPosition(
+      locationSettings: const geo.LocationSettings(
+        accuracy: geo.LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    );
+
+    final userPosition = Position(
+      currentLocation.longitude,
+      currentLocation.latitude,
+    );
+
+    finalDistance ??= calculateDistance(userPosition, carPark.location);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -198,14 +212,17 @@ class _MapScreenState extends State<MapScreen> {
               // Quick info cards
               Row(
                 children: [
-                  Expanded(
-                    child: _buildInfoCard(
-                      'Distance',
-                      '${(distance / 1000).toStringAsFixed(2)} km',
-                      Icons.directions_walk,
-                      Colors.blue,
+                  if (finalDistance != null) ...[
+                    Expanded(
+                      child: _buildInfoCard(
+                        'Distance',
+                        '${(finalDistance / 1000).toStringAsFixed(2)} km',
+                        Icons.directions_walk,
+                        Colors.blue,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                  ],
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildInfoCard(
@@ -337,21 +354,21 @@ class _MapScreenState extends State<MapScreen> {
                       label: const Text('Get Directions'),
                       onPressed: () {
                         Navigator.pop(context);
-                        // Add your navigation logic here
+                        // Add navigation logic here
                       },
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton.icon(
-                      icon: const Icon(Icons.map),
-                      label: const Text('View on Map'),
+                      icon: const Icon(Icons.event_available),
+                      label: const Text('Book'),
                       onPressed: () {
                         Navigator.pop(context);
                         setState(() {
                           _showMapView = true;
                         });
-                        _goToLocation(carPark.location);
+                        _showBookingForm(carPark);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
@@ -1055,25 +1072,15 @@ class _MapScreenState extends State<MapScreen> {
                             TextButton.icon(
                               icon: const Icon(Icons.info_outline, size: 16),
                               label: const Text('Details'),
-                              onPressed:
-                                  () => _showCarParkDetails(carPark, distance),
+                              onPressed: () => _showCarParkDetails(carPark),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
-                              icon: const Icon(Icons.directions),
-                              label: const Text('View on Map'),
-                              // This is the new logic for the "View on Map" button's onPressed
+                              icon: const Icon(Icons.event_available, size: 16),
+                              label: const Text('Book'),
+                              // New logic for the "View on Map" button's onPressed
                               onPressed: () {
-                                // First, switch the view back to the map
-                                setState(() {
-                                  _showMapView = true;
-                                });
-
-                                // Then, fly the camera to the selected car park's location
-                                _goToLocation(carPark.location);
-
-                                // To create a consistent user experience, we also bring up the
-                                // booking form, just like when tapping a marker on the map.
+                                // Show the details of the car park
                                 _showBookingForm(carPark);
                               },
                               style: ElevatedButton.styleFrom(
@@ -1257,7 +1264,7 @@ class _MapScreenState extends State<MapScreen> {
               print("Tapped on car park: ${carPark.name} (ID: ${carPark.id})");
 
               // Call the new method to show the booking form from the bottom.
-              _showBookingForm(carPark);
+              _showCarParkDetails(carPark);
 
               return; // Stop checking other car parks.
             }
