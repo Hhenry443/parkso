@@ -135,255 +135,290 @@ class _MapScreenState extends State<MapScreen> {
 
   // Method to show detailed car park information
   void _showCarParkDetails(CarPark carPark, {double? finalDistance}) async {
-    final currentLocation = await geo.Geolocator.getCurrentPosition(
-      locationSettings: const geo.LocationSettings(
-        accuracy: geo.LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    );
-
-    final userPosition = Position(
-      currentLocation.longitude,
-      currentLocation.latitude,
-    );
-
-    finalDistance ??= calculateDistance(userPosition, carPark.location);
-
-    showModalBottomSheet(
+    // Show a loading dialog if it takes too long for some reason.
+    // TO;DO Make the distance check quicker, i think this is where its hanging up
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.8,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Handle bar
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Header
-              Row(
-                children: [
-                  const Icon(Icons.local_parking, color: Colors.blue, size: 28),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          carPark.name,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (carPark.address != null)
-                          Text(
-                            carPark.address!,
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 14,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Quick info cards
-              Row(
-                children: [
-                  if (finalDistance != null) ...[
-                    Expanded(
-                      child: _buildInfoCard(
-                        'Distance',
-                        '${(finalDistance / 1000).toStringAsFixed(2)} km',
-                        Icons.directions_walk,
-                        Colors.blue,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildInfoCard(
-                      'Rate',
-                      carPark.hourlyRate != null
-                          ? '£${carPark.hourlyRate!.toStringAsFixed(2)}/hr'
-                          : 'N/A',
-                      Icons.monetization_on,
-                      Colors.green,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildInfoCard(
-                      'Available',
-                      carPark.availableSpaces != null
-                          ? '${carPark.availableSpaces} spaces'
-                          : 'N/A',
-                      Icons.local_parking,
-                      _getAvailabilityColor(carPark.availableSpaces ?? 0),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Features
-              if (carPark.features.isNotEmpty) ...[
-                const Text(
-                  'Features',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      carPark.features.map((feature) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.blue[200]!),
-                          ),
-                          child: Text(
-                            feature,
-                            style: TextStyle(
-                              color: Colors.blue[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                ),
-                const SizedBox(height: 20),
-              ],
-
-              // Opening hours
-              if (carPark.openingHours != null) ...[
-                const Text(
-                  'Opening Hours',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                ...carPark.openingHours!.entries.map((entry) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          entry.key[0].toUpperCase() + entry.key.substring(1),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        Text(entry.value),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 20),
-              ],
-
-              // Contact info
-              if (carPark.phoneNumber != null || carPark.website != null) ...[
-                const Text(
-                  'Contact',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                if (carPark.phoneNumber != null)
-                  Row(
-                    children: [
-                      const Icon(Icons.phone, size: 16),
-                      const SizedBox(width: 8),
-                      Text(carPark.phoneNumber!),
-                    ],
-                  ),
-                if (carPark.website != null) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.language, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          carPark.website!,
-                          style: const TextStyle(
-                            color: Colors.blue,
-                            decoration: TextDecoration.underline,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 20),
-              ],
-
-              // Actions
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.directions),
-                      label: const Text('Get Directions'),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // Add navigation logic here
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.event_available),
-                      label: const Text('Book'),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        setState(() {
-                          _showMapView = true;
-                        });
-                        _showBookingForm(carPark);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      barrierDismissible:
+          false, // User cannot dismiss the dialog by tapping outside
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(color: Colors.blue, strokeWidth: 5),
         );
       },
     );
+
+    try {
+      final currentLocation = await geo.Geolocator.getCurrentPosition(
+        locationSettings: const geo.LocationSettings(
+          accuracy: geo.LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      );
+
+      final userPosition = Position(
+        currentLocation.longitude,
+        currentLocation.latitude,
+      );
+
+      finalDistance ??= calculateDistance(userPosition, carPark.location);
+
+      // Dismiss the loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      // Show the modal bottom sheet with the car park details
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Header
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.local_parking,
+                      color: Colors.blue,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            carPark.name,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (carPark.address != null)
+                            Text(
+                              carPark.address!,
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Quick info cards
+                Row(
+                  children: [
+                    if (finalDistance != null) ...[
+                      Expanded(
+                        child: _buildInfoCard(
+                          'Distance',
+                          '${(finalDistance / 1000).toStringAsFixed(2)} km',
+                          Icons.directions_walk,
+                          Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      child: _buildInfoCard(
+                        'Rate',
+                        carPark.hourlyRate != null
+                            ? '£${carPark.hourlyRate!.toStringAsFixed(2)}/hr'
+                            : 'N/A',
+                        Icons.monetization_on,
+                        Colors.green,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildInfoCard(
+                        'Available',
+                        carPark.availableSpaces != null
+                            ? '${carPark.availableSpaces} spaces'
+                            : 'N/A',
+                        Icons.event_available,
+                        _getAvailabilityColor(carPark.availableSpaces ?? 0),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Features
+                if (carPark.features.isNotEmpty) ...[
+                  const Text(
+                    'Features',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children:
+                        carPark.features.map((feature) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.blue[200]!),
+                            ),
+                            child: Text(
+                              feature,
+                              style: TextStyle(
+                                color: Colors.blue[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                // Opening hours
+                if (carPark.openingHours != null) ...[
+                  const Text(
+                    'Opening Hours',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ...carPark.openingHours!.entries.map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            entry.key[0].toUpperCase() + entry.key.substring(1),
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          Text(entry.value),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 20),
+                ],
+
+                // Contact info
+                if (carPark.phoneNumber != null || carPark.website != null) ...[
+                  const Text(
+                    'Contact',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  if (carPark.phoneNumber != null)
+                    Row(
+                      children: [
+                        const Icon(Icons.phone, size: 16),
+                        const SizedBox(width: 8),
+                        Text(carPark.phoneNumber!),
+                      ],
+                    ),
+                  if (carPark.website != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.language, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            carPark.website!,
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                ],
+
+                // Actions
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.directions),
+                        label: const Text('Get Directions'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          // TODO Add navigation logic here
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.event_available),
+                        label: const Text('Book'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          setState(() {
+                            _showMapView = true;
+                          });
+                          _showBookingForm(carPark);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      // In case of an error, make sure to dismiss the loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      // Optionally, show an error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error fetching car park details: $e')),
+      );
+    }
   }
+
+  //
 
   Widget _buildInfoCard(
     String title,
@@ -673,14 +708,14 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String formatDistance(num? meters) {
-      if (meters == null) return 'Distance unknown';
-      if (meters >= 1000) {
-        return '${(meters / 1000).toStringAsFixed(1)} km away';
-      } else {
-        return '${meters.round()} m away';
-      }
-    }
+    //String formatDistance(num? meters) {
+    //  if (meters == null) return 'Distance unknown';
+    //  if (meters >= 1000) {
+    //    return '${(meters / 1000).toStringAsFixed(1)} km away';
+    //  } else {
+    //    return '${meters.round()} m away';
+    //  }
+    //}
 
     return Scaffold(
       appBar: AppBar(title: const Text('Parkso Car Park Lookup')),
@@ -878,7 +913,7 @@ class _MapScreenState extends State<MapScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  // Always keep the map in the widget tree
+                  // Always keep the map in the widget tree to keep markers (avoid refresh bug)
                   MapWidget(
                     key: const ValueKey('MapboxMapWidget'),
                     cameraOptions: CameraOptions(
@@ -1108,16 +1143,16 @@ class _MapScreenState extends State<MapScreen> {
       isScrollControlled: true, // Allows the sheet to occupy most of the screen
       backgroundColor: Colors.transparent,
       builder: (context) {
-        // DraggableScrollableSheet makes the sheet feel like a native app screen
+        // DraggableScrollableSheet makes the sheet feel better and actually part of the app
         return DraggableScrollableSheet(
           initialChildSize:
-              0.9, // The sheet will start at 90% of the screen height
+              0.75, // The sheet will start at 90% of the screen height (TODO maybe change for consistency)
           minChildSize: 0.5, // It can be dragged down to half screen
           maxChildSize: 0.9,
           expand: false,
           builder: (_, scrollController) {
             return Container(
-              // This container is the main body of your bottom sheet
+              // This container is the main body of the bottom sheet
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1157,9 +1192,9 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       const Divider(height: 40),
 
-                      // --- THIS IS THE CONTAINER FOR YOUR FORM ---
+                      // --- THIS IS THE CONTAINER FOR THE FORM ---
                       Container(
-                        // You can add your form fields here in a Column
+                        // You can add the form fields here in a Column
                         height: 400, // Example height
                         decoration: BoxDecoration(
                           border: Border.all(
@@ -1169,7 +1204,7 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                         child: const Center(
                           child: Text(
-                            'Your booking form fields will go here.',
+                            'Booking form fields will go here.',
                             style: TextStyle(fontSize: 16, color: Colors.grey),
                           ),
                         ),
@@ -1183,7 +1218,7 @@ class _MapScreenState extends State<MapScreen> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () {
-                            // TODO: Handle your form submission logic here
+                            // TODO: Handle form submission logic here
                             Navigator.pop(
                               context,
                             ); // Close the sheet after submission
