@@ -8,9 +8,14 @@ import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart' as geo;
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/car_park.dart';
 import '../data/car_park_data.dart';
+import 'payment_screen.dart';
+import '../services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -56,6 +61,13 @@ class _MapScreenState extends State<MapScreen> {
     if (availableSpaces > 20) return Colors.orange;
     return Colors.red;
   }
+
+  // Variables for the form
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _regPlateController = TextEditingController();
+  bool _isAlreadyParked = false;
+  DateTime? _arrivalDateTime;
+  DateTime? _departureDateTime;
 
   @override
   void initState() {
@@ -131,6 +143,78 @@ class _MapScreenState extends State<MapScreen> {
     print('=== End geolocator permission check ===');
 
     return isGranted;
+  }
+
+  // Corrected POST implementation
+  Future<Map<String, dynamic>?> sendBookingRequest(
+    String registration,
+    DateTime? arrival,
+    DateTime? departure,
+    String carParkUrl, // The ID for the car park, e.g., "springway"
+  ) async {
+    // 1. Validate that we have the required date/time information
+    if (arrival == null || departure == null) {
+      print('Error: Arrival or Departure date is missing.');
+      return null;
+    }
+
+    // 2. Define the API endpoint for the POST request
+    final url = Uri.https('parkso.uk', '/api/quote/springway');
+
+    // 3. Create the MultipartRequest for a POST request
+    var request = http.MultipartRequest('POST', url);
+
+    // 4. Format dates and times into the required string formats
+    final DateFormat dateFormatter = DateFormat('yyyy-M-d');
+    final DateFormat timeFormatter = DateFormat('HH:mm:ss');
+
+    // 5. Add all the required data to the 'fields' map for the formdata body % Get the shared prefs
+    final prefs = await SharedPreferences.getInstance();
+    final stripeId = prefs.getString('userStripeId');
+
+    if (stripeId == null) {
+      print(
+        'Error: Stripe ID not found. User might not be logged in correctly.',
+      );
+      return null;
+    }
+
+    request.fields.addAll({
+      'registration': registration,
+      'startDate': dateFormatter.format(arrival),
+      'startTime': timeFormatter.format(arrival),
+      'endDate': dateFormatter.format(departure),
+      'endTime': timeFormatter.format(departure),
+      'url': 'springway', // Always set to springway for now
+      'stripe_id': stripeId,
+    });
+
+    print('Sending POST request to $url with fields: ${request.fields}');
+
+    // 6. Send the request and handle the streamed response
+    try {
+      var streamedResponse = await request.send();
+
+      // Read the response from the stream
+      var responseBody = await streamedResponse.stream.bytesToString();
+
+      if (streamedResponse.statusCode == 200) {
+        print('API Response: $responseBody');
+        if (responseBody.isNotEmpty) {
+          return jsonDecode(responseBody);
+        } else {
+          print('Warning: API returned 200 OK but with an empty body.');
+          return null;
+        }
+      } else {
+        print('API Error: Status Code ${streamedResponse.statusCode}');
+        print('Error Body: $responseBody');
+        return null;
+      }
+    } catch (e) {
+      print('An exception occurred while sending the POST request: $e');
+      return null;
+    }
   }
 
   // Method to show detailed car park information
@@ -708,17 +792,29 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    //String formatDistance(num? meters) {
-    //  if (meters == null) return 'Distance unknown';
-    //  if (meters >= 1000) {
-    //    return '${(meters / 1000).toStringAsFixed(1)} km away';
-    //  } else {
-    //    return '${meters.round()} m away';
-    //  }
-    //}
+    // Get the user from the AuthService
+    final authService = Provider.of<AuthService>(context);
+    final user = authService.user;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Parkso Car Park Lookup')),
+      appBar: AppBar(
+        // Dynamically set the title based on login state
+        title: Text(
+          user != null ? 'Welcome, ${user.name}' : 'Parkso Car Park Lookup',
+        ),
+        // Add the actions list for the logout button
+        actions: [
+          if (authService.isLoggedIn) // Only show button if logged in
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Logout',
+              onPressed: () {
+                // Call the logout method from the AuthService
+                Provider.of<AuthService>(context, listen: false).logout();
+              },
+            ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -1138,108 +1234,307 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _showBookingForm(CarPark carPark) {
+    // Reset state when the form is opened
+    _regPlateController.clear();
+    _isAlreadyParked = false;
+    _arrivalDateTime = null;
+    _departureDateTime = null;
+
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Allows the sheet to occupy most of the screen
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        // DraggableScrollableSheet makes the sheet feel better and actually part of the app
-        return DraggableScrollableSheet(
-          initialChildSize:
-              0.75, // The sheet will start at 90% of the screen height (TODO maybe change for consistency)
-          minChildSize: 0.5, // It can be dragged down to half screen
-          maxChildSize: 0.9,
-          expand: false,
-          builder: (_, scrollController) {
-            return Container(
-              // This container is the main body of the bottom sheet
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: SingleChildScrollView(
-                controller: scrollController,
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // A small handle bar at the top for visual cue
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
+        // Use StatefulBuilder to manage the state within the modal
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            // Helper function to pick date and time
+            Future<DateTime?> _pickDateTime(DateTime initialDate) async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: initialDate,
+                firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date == null) return null;
 
-                      // Header with car park name
-                      Text(
-                        'Book a Space at ${carPark.name}',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        carPark.address ?? 'No address provided',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 16),
-                      ),
-                      const Divider(height: 40),
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(initialDate),
+              );
+              if (time == null) return null;
 
-                      // --- THIS IS THE CONTAINER FOR THE FORM ---
-                      Container(
-                        // You can add the form fields here in a Column
-                        height: 400, // Example height
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.blueAccent.withOpacity(0.5),
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Booking form fields will go here.',
-                            style: TextStyle(fontSize: 16, color: Colors.grey),
-                          ),
-                        ),
-                      ),
+              return DateTime(
+                date.year,
+                date.month,
+                date.day,
+                time.hour,
+                time.minute,
+              );
+            }
 
-                      // --- END OF FORM CONTAINER ---
-                      const SizedBox(height: 30),
-
-                      // Example Submit Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            // TODO: Handle form submission logic here
-                            Navigator.pop(
-                              context,
-                            ); // Close the sheet after submission
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Submit Booking',
-                            style: TextStyle(fontSize: 18, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
+            return DraggableScrollableSheet(
+              initialChildSize: 0.8,
+              minChildSize: 0.5,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (_, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
                   ),
-                ),
-              ),
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Center(
+                              child: Container(
+                                width: 40,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[300],
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              'Book a Space at ${carPark.name}',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              carPark.address ?? 'No address provided',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 16,
+                              ),
+                            ),
+                            const Divider(height: 40),
+
+                            // --- NEW BOOKING FORM ---
+
+                            // 1. Registration Plate Input
+                            TextFormField(
+                              controller: _regPlateController,
+                              decoration: const InputDecoration(
+                                labelText: 'Car Registration Plate',
+                                hintText: 'e.g., AB12 CDE',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter your registration plate.';
+                                }
+                                // Basic UK registration plate format check
+                                final regExp = RegExp(
+                                  r'^[A-Z]{2}[0-9]{2}\s?[A-Z]{3}$',
+                                  caseSensitive: false,
+                                );
+                                if (!regExp.hasMatch(value)) {
+                                  return 'Please enter a valid UK registration plate.';
+                                }
+                                return null;
+                              },
+                              inputFormatters: [UpperCaseTextFormatter()],
+                            ),
+                            const SizedBox(height: 20),
+
+                            // 2. "Already Parked?" Toggle
+                            SwitchListTile(
+                              title: const Text('Are you already parked?'),
+                              value: _isAlreadyParked,
+                              onChanged: (bool value) {
+                                setModalState(() {
+                                  _isAlreadyParked = value;
+                                  // Reset dates when toggling
+                                  _arrivalDateTime = null;
+                                  _departureDateTime = null;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 10),
+
+                            // 3. Conditional Date/Time Pickers
+                            if (_isAlreadyParked) ...[
+                              // Departure Time
+                              ListTile(
+                                leading: const Icon(Icons.departure_board),
+                                title: const Text('When are you leaving?'),
+                                subtitle: Text(
+                                  _departureDateTime == null
+                                      ? 'Select a date and time'
+                                      : '${_departureDateTime!.toLocal()}'
+                                          .split('.')[0],
+                                ),
+                                onTap: () async {
+                                  final picked = await _pickDateTime(
+                                    DateTime.now(),
+                                  );
+                                  if (picked != null) {
+                                    setModalState(() {
+                                      _departureDateTime = picked;
+                                    });
+                                  }
+                                },
+                              ),
+                            ] else ...[
+                              // Arrival Time
+                              ListTile(
+                                leading: const Icon(Icons.directions_car),
+                                title: const Text('When will you arrive?'),
+                                subtitle: Text(
+                                  _arrivalDateTime == null
+                                      ? 'Select a date and time'
+                                      : '${_arrivalDateTime!.toLocal()}'.split(
+                                        '.',
+                                      )[0],
+                                ),
+                                onTap: () async {
+                                  final picked = await _pickDateTime(
+                                    DateTime.now(),
+                                  );
+                                  if (picked != null) {
+                                    setModalState(() {
+                                      _arrivalDateTime = picked;
+                                    });
+                                  }
+                                },
+                              ),
+                              // Departure Time (for future parking)
+                              ListTile(
+                                leading: const Icon(Icons.departure_board),
+                                title: const Text('When will you leave?'),
+                                subtitle: Text(
+                                  _departureDateTime == null
+                                      ? 'Select a date and time'
+                                      : '${_departureDateTime!.toLocal()}'
+                                          .split('.')[0],
+                                ),
+                                onTap: () async {
+                                  final initialDate =
+                                      _arrivalDateTime ?? DateTime.now();
+                                  final picked = await _pickDateTime(
+                                    initialDate.add(const Duration(hours: 1)),
+                                  );
+                                  if (picked != null) {
+                                    setModalState(() {
+                                      _departureDateTime = picked;
+                                    });
+                                  }
+                                },
+                              ),
+                            ],
+
+                            // --- END OF FORM ---
+                            const SizedBox(height: 30),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                // Inside the ElevatedButton's onPressed in _showBookingForm
+                                onPressed: () async {
+                                  if (_formKey.currentState!.validate()) {
+                                    showDialog(
+                                      context: context,
+                                      barrierDismissible: false,
+                                      builder:
+                                          (BuildContext context) =>
+                                              const Center(
+                                                child:
+                                                    CircularProgressIndicator(),
+                                              ),
+                                    );
+
+                                    final apiResponse = await sendBookingRequest(
+                                      _regPlateController.text
+                                          .toUpperCase(), // 1st argument: registration
+                                      _arrivalDateTime, // 2nd argument: arrival
+                                      _departureDateTime, // 3rd argument: departure
+                                      carPark
+                                          .id, // 4th argument: carParkUrl (using the id)
+                                    );
+
+                                    // Dismiss the loading indicator
+                                    Navigator.pop(context);
+
+                                    // FINAL, CORRECTED LOGIC
+                                    if (apiResponse != null &&
+                                        apiResponse['data'] is Map &&
+                                        apiResponse['data']['clientSecret'] !=
+                                            null &&
+                                        apiResponse['data']['price'] != null) {
+                                      final data = apiResponse['data'];
+                                      final String clientSecret =
+                                          data['clientSecret'];
+                                      final double totalPrice =
+                                          (data['price'] as num).toDouble();
+
+                                      // Dismiss the booking form itself
+                                      Navigator.of(context).pop();
+
+                                      // Push the native PaymentScreen
+                                      if (mounted) {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder:
+                                                (context) => PaymentScreen(
+                                                  stripeClientSecret:
+                                                      clientSecret,
+                                                  totalPrice: totalPrice,
+                                                ),
+                                          ),
+                                        );
+                                      }
+                                    } else {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Could not create booking. Please try again.',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Proceed to Payment',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             );
           },
         );
@@ -1341,5 +1636,18 @@ class _MapScreenState extends State<MapScreen> {
         debugPrint("Location setup error: $e");
       }
     }
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
+    );
   }
 }

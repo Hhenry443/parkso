@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'screens/map_screen.dart';
+import 'package:provider/provider.dart';
+import 'services/auth_service.dart';
+import 'screens/auth_wrapper.dart';
 
 void main() {
-  // Ensure that Flutter bindings are initialized.
+  // Ensure that Flutter bindings are initialized, from your old main.dart
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Mapbox access token.
+  // Set Mapbox access token, from your old main.dart
   const String accessToken =
       "pk.eyJ1IjoiaGhlbnJ5NDQzIiwiYSI6ImNtYWduM2c0dzAydHgyaXNnZGc4cGRsejUifQ.PgHjAohNcSOClqxrxlyBKg";
   MapboxOptions.setAccessToken(accessToken);
@@ -20,9 +22,40 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: MapScreen(),
+    // The ChangeNotifierProvider makes the AuthService available to all child widgets.
+    return ChangeNotifierProvider(
+      create: (context) => AuthService(),
+      child: MaterialApp(
+        title: 'Parkso',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+        ),
+        debugShowCheckedModeBanner: false, // Kept from your old MaterialApp
+        home: const AppStartupScreen(),
+      ),
     );
+  }
+}
+
+// This screen handles the initial check for a logged-in user.
+class AppStartupScreen extends StatefulWidget {
+  const AppStartupScreen({super.key});
+
+  @override
+  State<AppStartupScreen> createState() => _AppStartupScreenState();
+}
+
+class _AppStartupScreenState extends State<AppStartupScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Attempt to log the user in automatically when the app starts.
+    Provider.of<AuthService>(context, listen: false).tryAutoLogin();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const AuthWrapper();
   }
 }
