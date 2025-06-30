@@ -1336,20 +1336,6 @@ class _MapScreenState extends State<MapScreen> {
                                 hintText: 'e.g., AB12 CDE',
                                 border: OutlineInputBorder(),
                               ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your registration plate.';
-                                }
-                                // Basic UK registration plate format check
-                                final regExp = RegExp(
-                                  r'^[A-Z]{2}[0-9]{2}\s?[A-Z]{3}$',
-                                  caseSensitive: false,
-                                );
-                                if (!regExp.hasMatch(value)) {
-                                  return 'Please enter a valid UK registration plate.';
-                                }
-                                return null;
-                              },
                               inputFormatters: [UpperCaseTextFormatter()],
                             ),
                             const SizedBox(height: 20),

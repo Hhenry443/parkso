@@ -75,21 +75,43 @@ class _PaymentScreenState extends State<PaymentScreen> {
       setState(() {
         _isProcessing = false;
       });
+
       _showSuccessDialog();
     } on Exception catch (e, stacktrace) {
-      // Catch the exception and stacktrace
       print('Error handling payment: $e');
       print('Stacktrace: $stacktrace');
 
       if (e is StripeException) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Payment failed: ${e.error.localizedMessage ?? e.error.code}',
+        // Show custom error popup for declined payments
+        if (e.error.code == 'payment_intent_authentication_failure' ||
+            e.error.code == 'payment_intent_payment_attempt_failed' ||
+            e.error.code == 'card_declined') {
+          showDialog(
+            context: context,
+            builder:
+                (_) => AlertDialog(
+                  title: const Text('Payment Declined'),
+                  content: Text(
+                    'Your payment was declined. Please check your card details or try another payment method.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Payment failed: ${e.error.localizedMessage ?? e.error.code}',
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
