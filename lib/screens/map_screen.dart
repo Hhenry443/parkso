@@ -145,7 +145,7 @@ class _MapScreenState extends State<MapScreen> {
     return isGranted;
   }
 
-  // Corrected POST implementation
+  // POST implementation
   Future<Map<String, dynamic>?> sendBookingRequest(
     String registration,
     DateTime? arrival,
@@ -153,10 +153,13 @@ class _MapScreenState extends State<MapScreen> {
     String carParkUrl, // The ID for the car park, e.g., "springway"
   ) async {
     // 1. Validate that we have the required date/time information
-    if (arrival == null || departure == null) {
-      print('Error: Arrival or Departure date is missing.');
+    // We only NEED the departure time, if the arrival is set to null, use the current time
+    if (departure == null) {
+      print('Error: Departure date is missing.');
       return null;
     }
+
+    arrival ??= DateTime.now();
 
     // 2. Define the API endpoint for the POST request
     final url = Uri.https('parkso.uk', '/api/quote/springway');

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'screens/auth_wrapper.dart';
 
 void main() {
-  // Ensure that Flutter bindings are initialized, from your old main.dart
+  // Ensure that Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set Mapbox access token, from your old main.dart
+  // Stripe publishable key
+  Stripe.publishableKey =
+      'pk_test_wGQVF7QeuldBJrMPt10D2esF'; // <-- REPLACE WITH CHRIS KEY
+
+  // Set Mapbox access token
   const String accessToken =
       "pk.eyJ1IjoiaGhlbnJ5NDQzIiwiYSI6ImNtYWduM2c0dzAydHgyaXNnZGc4cGRsejUifQ.PgHjAohNcSOClqxrxlyBKg";
   MapboxOptions.setAccessToken(accessToken);
