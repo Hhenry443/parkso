@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -27,6 +28,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   late MapboxMap _mapboxMap;
   PointAnnotationManager? _annotationManager;
+  bool _hasIdleListenerFired = false;
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -1021,6 +1023,37 @@ class _MapScreenState extends State<MapScreen> {
                       pitch: 0,
                     ),
                     onMapCreated: _onMapCreated,
+                    onMapIdleListener: (MapIdleEventData event) async {
+                      // Check if the listener has already run (from previous step).
+                      if (_hasIdleListenerFired) return;
+
+                      try {
+                        final cameraState = await _mapboxMap.getCameraState();
+
+                        final centerCoordinates =
+                            cameraState.center.coordinates;
+
+                        print(
+                          "Map has ended all movement for the first time and is now idle.",
+                        );
+                        print(
+                          "Camera Center: Lng: ${centerCoordinates.lng}, Lat: ${centerCoordinates.lat}",
+                        );
+
+                        setState(() {
+                          _hasIdleListenerFired = true;
+                        });
+                      } catch (e) {
+                        debugPrint("Error getting camera state on idle: $e");
+                      }
+                    },
+                    onCameraChangeListener: (cameraChangedEventData) {
+                      if (_hasIdleListenerFired) {
+                        setState(() {
+                          _hasIdleListenerFired = false;
+                        });
+                      }
+                    },
                   ),
 
                   // Show list view as an overlay when not in map view
