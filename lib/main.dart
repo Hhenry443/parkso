@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'screens/auth_wrapper.dart';
 
-void main() {
+void main() async {
   // Ensure that Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
 

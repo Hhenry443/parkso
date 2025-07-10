@@ -38,6 +38,8 @@ lib/generated_plugin_registrant.dart
 app.*.symbols
 app.*.map.json
 
+/android/local.properties
+
 # iOS build artifacts
 /ios/Pods/
 /ios/.symlinks/

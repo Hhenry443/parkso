@@ -28,7 +28,9 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   late MapboxMap _mapboxMap;
   PointAnnotationManager? _annotationManager;
-  bool _hasIdleListenerFired = false;
+  // Flag to check if we can run the camera change listener
+  Position? _lastMapCenter;
+  bool _canCheckForChange = true;
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -88,6 +90,36 @@ class _MapScreenState extends State<MapScreen> {
   // Generate a new session token for the Mapbox Search Box API
   void _generateSearchSessionToken() {
     _searchSessionToken = DateTime.now().millisecondsSinceEpoch.toString();
+  }
+
+  // Add this new method inside your _MapScreenState class
+  void _updateMarkersForMapCenter(Position mapCenter) {
+    const double radiusInMeters = 15000; // 15km
+
+    // Find all car parks within the specified radius
+    final List<Map<String, dynamic>> carParksInView =
+        carParksData.entries
+            .map((entry) {
+              final carPark = entry.value;
+              final distance = calculateDistance(mapCenter, carPark.location);
+              return {
+                'id': entry.key,
+                'carPark': carPark,
+                'distance': distance,
+              };
+            })
+            .where((data) => (data['distance'] as double) <= radiusInMeters)
+            .toList();
+
+    // Sort the found car parks by distance for the list view
+    carParksInView.sort((a, b) => a['distance'].compareTo(b['distance']));
+
+    // Update the state for the list view and render the new markers
+    setState(() {
+      _nearbyCarParks = carParksInView;
+    });
+
+    _addCarParkMarkers(carParksInView);
   }
 
   Future<bool> _requestLocationPermission() async {
@@ -714,6 +746,8 @@ class _MapScreenState extends State<MapScreen> {
       _searchResults = [];
     });
 
+    var oldCenter = location;
+
     // Move map to selected location
     _mapboxMap.flyTo(
       CameraOptions(center: Point(coordinates: location), zoom: 15),
@@ -1024,33 +1058,62 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     onMapCreated: _onMapCreated,
                     onMapIdleListener: (MapIdleEventData event) async {
-                      // Check if the listener has already run (from previous step).
-                      if (_hasIdleListenerFired) return;
+                      // If the gate is closed, do nothing. This prevents it from firing repeatedly.
+                      if (!_canCheckForChange) {
+                        return;
+                      }
 
+                      // Close the gate immediately so this logic only runs once per movement.
+                      setState(() {
+                        _canCheckForChange = false;
+                      });
+
+                      // --- The rest of your existing logic remains the same ---
                       try {
                         final cameraState = await _mapboxMap.getCameraState();
-
-                        final centerCoordinates =
-                            cameraState.center.coordinates;
-
-                        print(
-                          "Map has ended all movement for the first time and is now idle.",
-                        );
-                        print(
-                          "Camera Center: Lng: ${centerCoordinates.lng}, Lat: ${centerCoordinates.lat}",
+                        final newMapCenter = Position(
+                          cameraState.center.coordinates.lng,
+                          cameraState.center.coordinates.lat,
                         );
 
+                        if (_lastMapCenter == null) {
+                          print("First load, updating markers.");
+                          _updateMarkersForMapCenter(newMapCenter);
+                          setState(() {
+                            _lastMapCenter = newMapCenter;
+                          });
+                          return;
+                        }
+
+                        final distance = calculateDistance(
+                          newMapCenter,
+                          _lastMapCenter!,
+                        );
+                        print(
+                          "Distance from last update: ${distance.toStringAsFixed(2)} meters",
+                        );
+
+                        const double rerenderThreshold = 5000; // 5km
+
+                        if (distance < rerenderThreshold) {
+                          print("Within threshold, not updating markers.");
+                          return;
+                        }
+
+                        print("Threshold exceeded, updating markers.");
+                        _updateMarkersForMapCenter(newMapCenter);
                         setState(() {
-                          _hasIdleListenerFired = true;
+                          _lastMapCenter = newMapCenter;
                         });
                       } catch (e) {
-                        debugPrint("Error getting camera state on idle: $e");
+                        debugPrint("Error in onMapIdleListener: $e");
                       }
                     },
                     onCameraChangeListener: (cameraChangedEventData) {
-                      if (_hasIdleListenerFired) {
+                      // As soon as the camera moves, allow the idle listener to fire once it stops.
+                      if (!_canCheckForChange) {
                         setState(() {
-                          _hasIdleListenerFired = false;
+                          _canCheckForChange = true;
                         });
                       }
                     },
