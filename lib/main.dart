@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:provider/provider.dart';
-import 'services/auth_service.dart';
-import 'screens/auth_wrapper.dart';
+import 'screens/map_screen.dart';
 
 void main() async {
   // Ensure that Flutter bindings are initialized
@@ -27,40 +25,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The ChangeNotifierProvider makes the AuthService available to all child widgets.
-    return ChangeNotifierProvider(
-      create: (context) => AuthService(),
-      child: MaterialApp(
-        title: 'Parkso',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          visualDensity: VisualDensity.adaptivePlatformDensity,
-        ),
-        debugShowCheckedModeBanner: false, // Kept from your old MaterialApp
-        home: const AppStartupScreen(),
+    return MaterialApp(
+      title: 'Parkso',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
+      debugShowCheckedModeBanner: false,
+      home: const MapScreen(),
     );
-  }
-}
-
-// This screen handles the initial check for a logged-in user.
-class AppStartupScreen extends StatefulWidget {
-  const AppStartupScreen({super.key});
-
-  @override
-  State<AppStartupScreen> createState() => _AppStartupScreenState();
-}
-
-class _AppStartupScreenState extends State<AppStartupScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Attempt to log the user in automatically when the app starts.
-    Provider.of<AuthService>(context, listen: false).tryAutoLogin();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const AuthWrapper();
   }
 }

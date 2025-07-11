@@ -10,13 +10,10 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/car_park.dart';
 import '../data/car_park_data.dart';
 import 'payment_screen.dart';
-import '../services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -28,6 +25,8 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   late MapboxMap _mapboxMap;
   PointAnnotationManager? _annotationManager;
+  CircleAnnotationManager? _circleManager;
+
   // Flag to check if we can run the camera change listener
   Position? _lastMapCenter;
   bool _canCheckForChange = true;
@@ -193,7 +192,8 @@ class _MapScreenState extends State<MapScreen> {
       return null;
     }
 
-    arrival ??= DateTime.now();
+    // Use the provided arrival time, or default to the current time if it's null.
+    final DateTime startTime = arrival ?? DateTime.now();
 
     // 2. Define the API endpoint for the POST request
     final url = Uri.https('parkso.uk', '/api/quote/springway');
@@ -206,20 +206,14 @@ class _MapScreenState extends State<MapScreen> {
     final DateFormat timeFormatter = DateFormat('HH:mm:ss');
 
     // 5. Add all the required data to the 'fields' map for the formdata body % Get the shared prefs
-    final prefs = await SharedPreferences.getInstance();
-    final stripeId = prefs.getString('userStripeId');
 
-    if (stripeId == null) {
-      print(
-        'Error: Stripe ID not found. User might not be logged in correctly.',
-      );
-      return null;
-    }
+    // HARD CODED STRIPE ID FOR NOW
+    const stripeId = "cus_Rzs2woOxyayOBV";
 
     request.fields.addAll({
       'registration': registration,
-      'startDate': dateFormatter.format(arrival),
-      'startTime': timeFormatter.format(arrival),
+      'startDate': dateFormatter.format(startTime),
+      'startTime': timeFormatter.format(startTime),
       'endDate': dateFormatter.format(departure),
       'endTime': timeFormatter.format(departure),
       'url': 'springway', // Always set to springway for now
@@ -763,20 +757,24 @@ class _MapScreenState extends State<MapScreen> {
   ) async {
     // Clear existing annotations
     await _annotationManager?.deleteAll();
+    await _circleManager?.deleteAll(); // Add this line to clear old circles
 
     // Get marker image
     final ByteData bytes = await rootBundle.load('assets/car-solid.png');
     final Uint8List locationMarker = bytes.buffer.asUint8List();
 
-    // Add markers for each car park
+    // Add markers and circles for each car park
     for (final carParkData in carParksToShow) {
       final carPark = carParkData['carPark'] as CarPark;
-      final annotationOptions = PointAnnotationOptions(
-        geometry: Point(coordinates: carPark.location),
+      final pointGeometry = Point(coordinates: carPark.location);
+
+      // Create the Point (the car icon)
+      final pointOptions = PointAnnotationOptions(
+        geometry: pointGeometry,
         image: locationMarker,
         iconSize: 0.10,
       );
-      await _annotationManager!.create(annotationOptions);
+      await _annotationManager!.create(pointOptions);
     }
   }
 
@@ -831,29 +829,8 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the user from the AuthService
-    final authService = Provider.of<AuthService>(context);
-    final user = authService.user;
-
     return Scaffold(
-      appBar: AppBar(
-        // Dynamically set the title based on login state
-        title: Text(
-          user != null ? 'Welcome, ${user.name}' : 'Parkso Car Park Lookup',
-        ),
-        // Add the actions list for the logout button
-        actions: [
-          if (authService.isLoggedIn) // Only show button if logged in
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Logout',
-              onPressed: () {
-                // Call the logout method from the AuthService
-                Provider.of<AuthService>(context, listen: false).logout();
-              },
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Parkso Car Park Lookup')),
       body: SafeArea(
         child: Column(
           children: [
@@ -1649,8 +1626,11 @@ class _MapScreenState extends State<MapScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
+        // Initialize both annotation managers
         _annotationManager =
             await _mapboxMap.annotations.createPointAnnotationManager();
+        _circleManager =
+            await _mapboxMap.annotations.createCircleAnnotationManager();
 
         _setupLocationTracking();
 
@@ -1659,37 +1639,41 @@ class _MapScreenState extends State<MapScreen> {
           _addCarParkMarkers(_nearbyCarParks);
         }
 
-        // add tap functionality
+        // --- REVISED TAP INTERACTION LOGIC ---
         var tapInteraction = TapInteraction.onMap((context) async {
-          final tapLat = context.point.coordinates.lat;
-          final tapLng = context.point.coordinates.lng;
+          // Define a tap radius in screen pixels that matches the circle's radius.
+          const double tapRadiusInPixels = 25.0;
+          final tapPoint = await _mapboxMap.pixelForCoordinate(context.point);
 
-          // Check if the tap is on any car park
-          const double tapThreshold = 0.0002;
-
+          // Check if the tap is on any car park marker
           for (final carParkData in _nearbyCarParks) {
             final carPark = carParkData['carPark'] as CarPark;
-            final carParkLat = carPark.location.lat;
-            final carParkLng = carPark.location.lng;
 
-            final distanceLat = (carParkLat - tapLat).abs();
-            final distanceLng = (carParkLng - tapLng).abs();
+            // Project the car park's geographic coordinate to a screen coordinate
+            final carParkScreenPoint = await _mapboxMap.pixelForCoordinate(
+              Point(coordinates: carPark.location), // The corrected line
+            );
 
-            if (distanceLat < tapThreshold && distanceLng < tapThreshold) {
+            // Calculate the distance between the tap point and the marker's center on the screen
+            final dx = carParkScreenPoint.x - tapPoint.x;
+            final dy = carParkScreenPoint.y - tapPoint.y;
+            final distance = sqrt(dx * dx + dy * dy);
+
+            // If the distance is within our defined radius, a "tap" has occurred
+            if (distance <= tapRadiusInPixels) {
               print("Tapped on car park: ${carPark.name} (ID: ${carPark.id})");
-
-              // Call the new method to show the booking form from the bottom.
               _showCarParkDetails(carPark);
-
-              return; // Stop checking other car parks.
+              return; // Exit after finding the first match
             }
           }
 
-          // If no car park was tapped, continue as normal
+          // If no car park was tapped, place a new search marker
           final ByteData bytes = await rootBundle.load(
             'assets/location-dot-solid.png',
           );
           final Uint8List markerImage = bytes.buffer.asUint8List();
+          final tapLng = context.point.coordinates.lng;
+          final tapLat = context.point.coordinates.lat;
 
           findCarParksNearLocation(Position(tapLng, tapLat));
 
