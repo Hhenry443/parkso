@@ -21,7 +21,7 @@
 -keep class com.google.android.gms.auth.** { *; }
 -keep class com.google.android.gms.common.** { *; }
 
-# Google Mobile Ads (AdMob) 広告
+# Google Mobile Ads (AdMob)
 # Prevents crashes related to ad loading, like the NullPointerException you saw.
 -keep public class com.google.android.gms.ads.** {
    public *;

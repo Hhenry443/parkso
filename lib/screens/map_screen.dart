@@ -5,7 +5,8 @@ import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
+// import 'package:http/http.dart' as http; // REMOVED: No longer using the http package
+import 'package:dio/dio.dart'; // ADDED: Import the dio package
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart' as geo;
@@ -26,6 +27,9 @@ class _MapScreenState extends State<MapScreen> {
   late MapboxMap _mapboxMap;
   PointAnnotationManager? _annotationManager;
   CircleAnnotationManager? _circleManager;
+
+  // ADDED: Create a single instance of Dio to be reused.
+  final Dio _dio = Dio();
 
   // Flag to check if we can run the camera change listener
   Position? _lastMapCenter;
@@ -178,39 +182,26 @@ class _MapScreenState extends State<MapScreen> {
     return isGranted;
   }
 
-  // POST implementation
   Future<Map<String, dynamic>?> sendBookingRequest(
     String registration,
     DateTime? arrival,
     DateTime? departure,
     String carParkUrl, // The ID for the car park, e.g., "springway"
   ) async {
-    // 1. Validate that we have the required date/time information
-    // We only NEED the departure time, if the arrival is set to null, use the current time
     if (departure == null) {
       print('Error: Departure date is missing.');
       return null;
     }
 
-    // Use the provided arrival time, or default to the current time if it's null.
     final DateTime startTime = arrival ?? DateTime.now();
+    final url = 'https://so.twist.blue/api/quote/springway';
 
-    // 2. Define the API endpoint for the POST request
-    final url = Uri.https('parkso.uk', '/api/quote/springway');
-
-    // 3. Create the MultipartRequest for a POST request
-    var request = http.MultipartRequest('POST', url);
-
-    // 4. Format dates and times into the required string formats
     final DateFormat dateFormatter = DateFormat('yyyy-M-d');
     final DateFormat timeFormatter = DateFormat('HH:mm:ss');
-
-    // 5. Add all the required data to the 'fields' map for the formdata body % Get the shared prefs
-
-    // HARD CODED STRIPE ID FOR NOW
     const stripeId = "cus_Rzs2woOxyayOBV";
 
-    request.fields.addAll({
+    // Use FormData for multipart/form-data requests with Dio.
+    final formData = FormData.fromMap({
       'registration': registration,
       'startDate': dateFormatter.format(startTime),
       'startTime': timeFormatter.format(startTime),
@@ -220,30 +211,32 @@ class _MapScreenState extends State<MapScreen> {
       'stripe_id': stripeId,
     });
 
-    print('Sending POST request to $url with fields: ${request.fields}');
+    print('Sending POST request to $url with fields: ${formData.fields}');
 
-    // 6. Send the request and handle the streamed response
     try {
-      var streamedResponse = await request.send();
+      final response = await _dio.post(url, data: formData);
 
-      // Read the response from the stream
-      var responseBody = await streamedResponse.stream.bytesToString();
+      if (response.statusCode == 200 && response.data != null) {
+        print('API Response: ${response.data}');
 
-      if (streamedResponse.statusCode == 200) {
-        print('API Response: $responseBody');
-        if (responseBody.isNotEmpty) {
-          return jsonDecode(responseBody);
-        } else {
-          print('Warning: API returned 200 OK but with an empty body.');
-          return null;
+        if (response.data is String) {
+          return jsonDecode(response.data);
         }
+        return response.data;
       } else {
-        print('API Error: Status Code ${streamedResponse.statusCode}');
-        print('Error Body: $responseBody');
+        print('API Error: Status Code ${response.statusCode}');
+        print('Error Body: ${response.data}');
         return null;
       }
-    } catch (e) {
+    } on DioException catch (e) {
+      // DioException provides more structured error information.
       print('An exception occurred while sending the POST request: $e');
+      if (e.response != null) {
+        print('Error response data: ${e.response?.data}');
+      }
+      return null;
+    } catch (e) {
+      print('An unexpected error occurred: $e');
       return null;
     }
   }
@@ -292,7 +285,12 @@ class _MapScreenState extends State<MapScreen> {
         ),
         builder: (context) {
           return Container(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.only(
+              left: 20.0,
+              right: 20.0,
+              top: 20.0,
+              bottom: 20.0 + MediaQuery.of(context).viewPadding.bottom,
+            ),
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.8,
             ),
@@ -613,7 +611,7 @@ class _MapScreenState extends State<MapScreen> {
     return earthRadius * c;
   }
 
-  // Function to search for places using Mapbox Search Box API
+  // REFACTORED: This function now uses Dio for the GET request.
   Future<void> searchPlaces(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
@@ -622,7 +620,6 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    // Get the current location for better search results
     geo.Position? currentPosition;
     try {
       final permission = await Permission.locationWhenInUse.status;
@@ -633,35 +630,30 @@ class _MapScreenState extends State<MapScreen> {
       debugPrint('Location error: $e');
     }
 
-    // Build proximity parameter if location is available
-    String proximityParam = '';
+    final url = 'https://api.mapbox.com/search/searchbox/v1/suggest';
+    // Use a map for query parameters, which is cleaner with Dio.
+    final params = {
+      'q': query,
+      'access_token': _mapboxAccessToken,
+      'session_token': _searchSessionToken,
+      'language': 'en',
+      'types': 'city,neighborhood,street,postcode',
+      'limit': 5,
+    };
+
     if (currentPosition != null) {
-      proximityParam =
-          '&proximity=${currentPosition.longitude},${currentPosition.latitude}';
+      params['proximity'] =
+          '${currentPosition.longitude},${currentPosition.latitude}';
     }
 
-    // Search Box API endpoint
-    final url =
-        'https://api.mapbox.com/search/searchbox/v1/suggest?q=${Uri.encodeComponent(query)}'
-        '&access_token=$_mapboxAccessToken'
-        '&session_token=$_searchSessionToken'
-        '$proximityParam'
-        '&language=en'
-        '&types=city,neighborhood,street,postcode'
-        '&limit=5';
-
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = await _dio.get(url, queryParameters: params);
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data; // Dio automatically decodes JSON.
         if (data['suggestions'] != null) {
-          // Process the suggestions
           final List<Map<String, dynamic>> suggestions = [];
-
           for (final suggestion in data['suggestions']) {
-            // Skip suggestions without mapbox_id
             if (suggestion['mapbox_id'] == null) continue;
-
             suggestions.add({
               'name': suggestion['name'],
               'description':
@@ -669,28 +661,28 @@ class _MapScreenState extends State<MapScreen> {
               'mapbox_id': suggestion['mapbox_id'],
             });
           }
-
           setState(() {
             _searchResults = suggestions;
           });
         }
       }
-    } catch (e) {
+    } on DioException catch (e) {
       debugPrint('Search Box API error: $e');
     }
   }
 
-  // Function to retrieve details for a selected suggestion using the retrieve endpoint
+  // REFACTORED: This function now uses Dio for the GET request.
   Future<void> getPlaceDetails(String mapboxId) async {
-    final url =
-        'https://api.mapbox.com/search/searchbox/v1/retrieve/$mapboxId'
-        '?access_token=$_mapboxAccessToken'
-        '&session_token=$_searchSessionToken';
+    final url = 'https://api.mapbox.com/search/searchbox/v1/retrieve/$mapboxId';
+    final params = {
+      'access_token': _mapboxAccessToken,
+      'session_token': _searchSessionToken,
+    };
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = await _dio.get(url, queryParameters: params);
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data; // Dio automatically decodes JSON.
         final feature = data['features'][0];
 
         if (feature != null && feature['geometry'] != null) {
@@ -706,15 +698,12 @@ class _MapScreenState extends State<MapScreen> {
               feature['properties']['place_formatted'] ??
               name;
 
-          // Find car parks near this location
           _searchController.text = fullAddress;
           findCarParksNearLocation(location);
-
-          // Generate a new session token for the next search session
           _generateSearchSessionToken();
         }
       }
-    } catch (e) {
+    } on DioException catch (e) {
       debugPrint('Retrieve API error: $e');
     }
   }
@@ -929,94 +918,89 @@ class _MapScreenState extends State<MapScreen> {
                     ),
 
                   // View toggle buttons
-                  if (_nearbyCarParks.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(25),
-                        color: Colors.grey[200],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _showMapView = true;
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(25),
-                                  color:
-                                      _showMapView
-                                          ? Colors.white
-                                          : Colors.transparent,
-                                  boxShadow:
-                                      _showMapView
-                                          ? [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(
-                                                0.1,
-                                              ),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ]
-                                          : null,
-                                ),
-                                alignment: Alignment.center,
-                                child: const Text(
-                                  'Map',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _showMapView = false;
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(25),
-                                  color:
-                                      !_showMapView
-                                          ? Colors.white
-                                          : Colors.transparent,
-                                  boxShadow:
-                                      !_showMapView
-                                          ? [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(
-                                                0.1,
-                                              ),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ]
-                                          : null,
-                                ),
-                                alignment: Alignment.center,
-                                child: const Text(
-                                  'List',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(25),
+                      color: Colors.grey[200],
                     ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showMapView = true;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(25),
+                                color:
+                                    _showMapView
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                boxShadow:
+                                    _showMapView
+                                        ? [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.1,
+                                            ),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                        : null,
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'Map',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showMapView = false;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(25),
+                                color:
+                                    !_showMapView
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                boxShadow:
+                                    !_showMapView
+                                        ? [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.1,
+                                            ),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                        : null,
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'List',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1365,7 +1349,13 @@ class _MapScreenState extends State<MapScreen> {
                   child: SingleChildScrollView(
                     controller: scrollController,
                     child: Padding(
-                      padding: const EdgeInsets.all(20.0),
+                      padding: EdgeInsets.only(
+                        left: 20.0,
+                        right: 20.0,
+                        top: 20.0,
+                        bottom:
+                            20.0 + MediaQuery.of(context).viewPadding.bottom,
+                      ),
                       child: Form(
                         key: _formKey,
                         child: Column(
